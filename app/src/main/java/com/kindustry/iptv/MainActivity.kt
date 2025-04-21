@@ -1,5 +1,6 @@
 package com.kindustry.iptv
 
+import android.content.Context
 import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
 import android.net.Uri
@@ -19,19 +20,24 @@ import com.google.android.exoplayer2.DefaultLoadControl
 import com.google.android.exoplayer2.MediaItem
 import com.google.android.exoplayer2.SimpleExoPlayer
 import com.google.android.exoplayer2.analytics.AnalyticsListener
+import com.google.android.exoplayer2.ext.okhttp.OkHttpDataSource
 import com.google.android.exoplayer2.source.ProgressiveMediaSource
 import com.google.android.exoplayer2.source.dash.DashMediaSource
 import com.google.android.exoplayer2.source.hls.HlsMediaSource
 import com.google.android.exoplayer2.source.smoothstreaming.SsMediaSource
 import com.google.android.exoplayer2.ui.PlayerView
-import com.google.android.exoplayer2.upstream.DefaultDataSourceFactory
+import com.google.android.exoplayer2.upstream.DataSource
 import com.google.android.exoplayer2.util.Util
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.net.URL
+import javax.net.ssl.SSLContext
+import javax.net.ssl.TrustManager
+import javax.net.ssl.X509TrustManager
 
 class MainActivity : AppCompatActivity(), AnalyticsListener {
 
@@ -44,7 +50,6 @@ class MainActivity : AppCompatActivity(), AnalyticsListener {
     private var currentVideoIndex = 0
 
 
-//    private var player: ExoPlayer? = null
     private val player by lazy {
         SimpleExoPlayer.Builder(this).setLoadControl(asapLoadControl).build()
     }
@@ -60,10 +65,35 @@ class MainActivity : AppCompatActivity(), AnalyticsListener {
     }
 
     private val dataSourceFactory by lazy {
-        DefaultDataSourceFactory(
-            this,
-            Util.getUserAgent(this, "Mozilla/4.0 (compatible; MSIE 6.0; ztebw V1.0)"),
-        )
+        val userAgent = Util.getUserAgent(this, "Mozilla/4.0 (compatible; MSIE 6.0; ztebw V1.0)")
+        val unsafeOkHttpClient = getUnsafeOkHttpClient(this)
+
+        DataSource.Factory {
+            val defaultHttpDataSource = OkHttpDataSource.Factory(unsafeOkHttpClient).setUserAgent(userAgent).createDataSource()
+            defaultHttpDataSource
+        }
+    }
+
+    fun getUnsafeOkHttpClient(context: Context): OkHttpClient {
+        return try {
+            // 创建一个信任所有证书的 TrustManager
+            val trustAllCerts = arrayOf<TrustManager>(object : X509TrustManager {
+                override fun checkClientTrusted(chain: Array<out java.security.cert.X509Certificate>?, authType: String?) {}
+                override fun checkServerTrusted(chain: Array<out java.security.cert.X509Certificate>?, authType: String?) {}
+                override fun getAcceptedIssuers(): Array<java.security.cert.X509Certificate> { return arrayOf() }
+            })
+
+            // 获取 SSLContext 实例
+            val sslContext = SSLContext.getInstance("TLS")  // 使用 "TLS" 或者 "TLSv1.2"
+            sslContext.init(null, trustAllCerts, java.security.SecureRandom())
+
+            val builder = OkHttpClient.Builder()
+            builder.sslSocketFactory(sslContext.socketFactory, trustAllCerts[0] as X509TrustManager)
+            builder.hostnameVerifier { _, _ -> true } // 信任所有主机名
+            builder.build()
+        } catch (e: Exception) {
+            throw RuntimeException(e)
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -223,7 +253,7 @@ class MainActivity : AppCompatActivity(), AnalyticsListener {
         private val SWIPE_VELOCITY_THRESHOLD = 100
 
         override fun onFling(
-            e1: MotionEvent?,
+            e1: MotionEvent,
             e2: MotionEvent,
             velocityX: Float,
             velocityY: Float
