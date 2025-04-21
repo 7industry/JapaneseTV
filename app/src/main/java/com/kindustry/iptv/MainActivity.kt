@@ -1,37 +1,44 @@
 package com.kindustry.iptv
 
-import android.os.Bundle
-import androidx.appcompat.app.AppCompatActivity
+import android.content.Context
 import android.net.Uri
 import android.os.Build
+import android.os.Bundle
 import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowInsetsController
 import android.view.WindowManager
 import android.widget.Toast
+import androidx.appcompat.app.AppCompatActivity
 import androidx.coordinatorlayout.widget.CoordinatorLayout
 import androidx.core.view.GestureDetectorCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.lifecycleScope
-import com.google.android.exoplayer2.C
-import com.google.android.exoplayer2.DefaultLoadControl
-import com.google.android.exoplayer2.MediaItem
-import com.google.android.exoplayer2.SimpleExoPlayer
-import com.google.android.exoplayer2.analytics.AnalyticsListener
-import com.google.android.exoplayer2.source.ProgressiveMediaSource
-import com.google.android.exoplayer2.source.dash.DashMediaSource
-import com.google.android.exoplayer2.source.hls.HlsMediaSource
-import com.google.android.exoplayer2.source.smoothstreaming.SsMediaSource
-import com.google.android.exoplayer2.ui.PlayerView
-import com.google.android.exoplayer2.upstream.DefaultDataSourceFactory
-import com.google.android.exoplayer2.util.Util
+import androidx.media3.common.C
+import androidx.media3.common.MediaItem
+import androidx.media3.common.util.Util
+import androidx.media3.datasource.DataSource
+import androidx.media3.datasource.okhttp.OkHttpDataSource
+import androidx.media3.exoplayer.DefaultLoadControl
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.analytics.AnalyticsListener
+import androidx.media3.exoplayer.dash.DashMediaSource
+import androidx.media3.exoplayer.hls.HlsMediaSource
+import androidx.media3.exoplayer.smoothstreaming.SsMediaSource
+import androidx.media3.exoplayer.source.ProgressiveMediaSource
+import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
+import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.net.URL
+import javax.net.ssl.SSLContext
+import javax.net.ssl.TrustManager
+import javax.net.ssl.X509TrustManager
 
 class MainActivity : AppCompatActivity(), AnalyticsListener {
 
@@ -44,9 +51,11 @@ class MainActivity : AppCompatActivity(), AnalyticsListener {
     private var currentVideoIndex = 0
 
 
-//    private var player: ExoPlayer? = null
     private val player by lazy {
-        SimpleExoPlayer.Builder(this).setLoadControl(asapLoadControl).build()
+        ExoPlayer.Builder(this)
+            .setTrackSelector(DefaultTrackSelector(this)) // TrackSelector 是必需的
+            .setLoadControl(asapLoadControl)
+            .build()
     }
 
     private val asapLoadControl by lazy {
@@ -60,10 +69,36 @@ class MainActivity : AppCompatActivity(), AnalyticsListener {
     }
 
     private val dataSourceFactory by lazy {
-        DefaultDataSourceFactory(
-            this,
-            Util.getUserAgent(this, "Mozilla/4.0 (compatible; MSIE 6.0; ztebw V1.0)"),
-        )
+        val userAgent = Util.getUserAgent(this, "Mozilla/4.0 (compatible; MSIE 6.0; ztebw V1.0)")
+        val unsafeOkHttpClient = getUnsafeOkHttpClient(this)
+
+        DataSource.Factory {
+            val defaultHttpDataSource = OkHttpDataSource.Factory(unsafeOkHttpClient).setUserAgent(userAgent).createDataSource()
+            defaultHttpDataSource
+        }
+    }
+
+    fun getUnsafeOkHttpClient(context: Context): OkHttpClient {
+        return try {
+            // 创建一个信任所有证书的 TrustManager
+            val trustAllCerts = arrayOf<TrustManager>(object : X509TrustManager {
+                override fun checkClientTrusted(chain: Array<out java.security.cert.X509Certificate>?, authType: String?) {}
+                override fun checkServerTrusted(chain: Array<out java.security.cert.X509Certificate>?, authType: String?) {}
+                override fun getAcceptedIssuers(): Array<java.security.cert.X509Certificate> { return arrayOf() }
+            })
+
+            // 获取 SSLContext 实例
+            val sslContext = SSLContext.getInstance("TLS")
+//        val sslContext = SSLContext.getInstance("TLSv1.2") // 或者使用 "TLS"
+            sslContext.init(null, trustAllCerts, java.security.SecureRandom())
+
+            val builder = OkHttpClient.Builder()
+            builder.sslSocketFactory(sslContext.socketFactory, trustAllCerts[0] as X509TrustManager)
+            builder.hostnameVerifier { _, _ -> true } // 信任所有主机名
+            builder.build()
+        } catch (e: Exception) {
+            throw RuntimeException(e)
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -108,12 +143,12 @@ class MainActivity : AppCompatActivity(), AnalyticsListener {
                     val uri = Uri.parse(videoUrls[0])
                     val type = Util.inferContentType(uri)
                     val ms = when (type) {
-                        C.TYPE_DASH -> DashMediaSource.Factory(dataSourceFactory)
-                        C.TYPE_HLS -> HlsMediaSource.Factory(dataSourceFactory)
-                        C.TYPE_SS -> SsMediaSource.Factory(dataSourceFactory)
-                        C.TYPE_OTHER -> ProgressiveMediaSource.Factory(dataSourceFactory)
+                        C.CONTENT_TYPE_DASH -> DashMediaSource.Factory(dataSourceFactory)
+                        C.CONTENT_TYPE_HLS -> HlsMediaSource.Factory(dataSourceFactory)
+                        C.CONTENT_TYPE_SS -> SsMediaSource.Factory(dataSourceFactory)
+                        C.CONTENT_TYPE_OTHER -> ProgressiveMediaSource.Factory(dataSourceFactory)
                         else -> {
-//                toast(str(R.string.fmt_unsupported_content_type, type.toString()))
+                            Toast.makeText(this@MainActivity, "不支持的视频格式", Toast.LENGTH_SHORT).show()
                             return@withContext
                         }
                     }.createMediaSource(MediaItem.fromUri(uri))
@@ -223,7 +258,7 @@ class MainActivity : AppCompatActivity(), AnalyticsListener {
         private val SWIPE_VELOCITY_THRESHOLD = 100
 
         override fun onFling(
-            e1: MotionEvent?,
+            e1: MotionEvent,
             e2: MotionEvent,
             velocityX: Float,
             velocityY: Float
@@ -269,12 +304,12 @@ class MainActivity : AppCompatActivity(), AnalyticsListener {
         val uri = Uri.parse(videoUrls[currentVideoIndex])
         val type = Util.inferContentType(uri)
         val ms = when (type) {
-            C.TYPE_DASH -> DashMediaSource.Factory(dataSourceFactory)
-            C.TYPE_HLS -> HlsMediaSource.Factory(dataSourceFactory)
-            C.TYPE_SS -> SsMediaSource.Factory(dataSourceFactory)
-            C.TYPE_OTHER -> ProgressiveMediaSource.Factory(dataSourceFactory)
+            C.CONTENT_TYPE_DASH -> DashMediaSource.Factory(dataSourceFactory)
+            C.CONTENT_TYPE_HLS -> HlsMediaSource.Factory(dataSourceFactory)
+            C.CONTENT_TYPE_SS -> SsMediaSource.Factory(dataSourceFactory)
+            C.CONTENT_TYPE_OTHER -> ProgressiveMediaSource.Factory(dataSourceFactory)
             else -> {
-//                toast(str(R.string.fmt_unsupported_content_type, type.toString()))
+                Toast.makeText(this@MainActivity, "不支持的视频格式", Toast.LENGTH_SHORT).show()
                 return
             }
         }.createMediaSource(MediaItem.fromUri(uri))
