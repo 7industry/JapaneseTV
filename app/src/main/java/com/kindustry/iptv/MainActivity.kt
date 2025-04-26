@@ -1,16 +1,19 @@
 package com.kindustry.iptv
 
 import android.content.Context
-import android.os.Bundle
-import androidx.appcompat.app.AppCompatActivity
+import android.content.Intent
 import android.net.Uri
+import android.net.wifi.WifiManager
 import android.os.Build
+import android.os.Bundle
 import android.view.GestureDetector
 import android.view.MotionEvent
+import android.view.TextureView
 import android.view.View
 import android.view.WindowInsetsController
 import android.view.WindowManager
 import android.widget.Toast
+import androidx.appcompat.app.AppCompatActivity
 import androidx.coordinatorlayout.widget.CoordinatorLayout
 import androidx.core.view.GestureDetectorCompat
 import androidx.core.view.WindowInsetsCompat
@@ -28,8 +31,8 @@ import com.google.android.exoplayer2.source.smoothstreaming.SsMediaSource
 import com.google.android.exoplayer2.ui.PlayerView
 import com.google.android.exoplayer2.upstream.DataSource
 import com.google.android.exoplayer2.util.Util
+import com.kindustry.iptv.service.BackgroundPlayService
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import java.io.BufferedReader
@@ -39,17 +42,21 @@ import javax.net.ssl.SSLContext
 import javax.net.ssl.TrustManager
 import javax.net.ssl.X509TrustManager
 
+
 class MainActivity : AppCompatActivity(), AnalyticsListener {
 
     private lateinit var playerView: PlayerView
     private lateinit var rootLayout: CoordinatorLayout
     private lateinit var gestureDetectorCompat: GestureDetectorCompat
-    private val m3uUrl = "https://raw.githubusercontent.com/soofee/iptv/master/jp.m3u"
+    private lateinit var wifiLock: WifiManager.WifiLock
+
     private var iptvNames: List<String> = emptyList()
     private var videoUrls: List<String> = emptyList()
     private var currentVideoIndex = 0
 
+    private val m3uUrl = "https://raw.githubusercontent.com/soofee/iptv/master/jp.m3u"
 
+    // 初始化播放器
     private val player by lazy {
         SimpleExoPlayer.Builder(this).setLoadControl(asapLoadControl).build()
     }
@@ -108,13 +115,48 @@ class MainActivity : AppCompatActivity(), AnalyticsListener {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         hideSystemUI()
 
+        // 保持 Wi-Fi 锁 (Wifi Lock)
+        val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+        val wifiLock = wifiManager.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "MyApp:IPTVBackground")
+        wifiLock.acquire()
+
+        // 使用前台服务 (Foreground Service)
+        val serviceIntent = Intent( this, BackgroundPlayService::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(serviceIntent)
+        } else {
+            startService(serviceIntent)
+        }
+
+        // 创建 TextureView
+        val textureView = TextureView(this)
+
+        // 将 TextureView 设置为 ExoPlayer 的渲染视图
+        player.setVideoTextureView(textureView)
+
+        playerView.keepScreenOn = true
         playerView.player = player
+        // 添加播放器监听器
         player.addAnalyticsListener(this)
 
         //inject initial data
         lifecycleScope.launchWhenCreated {
 //            if (BuildConfig.DEBUG)
-
+            withContext(Dispatchers.IO) {
+                // 在 IO 线程中执行你的网络操作
+                videoUrls = parseM3U(m3uUrl)
+                if (videoUrls.isNotEmpty()) {
+                    // 切换到主线程来操作 ExoPlayer
+                    withContext(Dispatchers.Main) {
+                        switchPlay()
+                    }
+                } else {
+                    // 处理 M3U 文件解析失败或没有视频 URL 的情况
+                    Toast.makeText(this@MainActivity, "无法加载视频列表", Toast.LENGTH_SHORT).show()
+                }
+            }
+            // 在主线程中处理网络操作的结果，例如更新 UI
+//            updateUI(result)
         }
 
         // 创建 GestureDetectorCompat 实例
@@ -127,41 +169,13 @@ class MainActivity : AppCompatActivity(), AnalyticsListener {
         }
     }
 
+    /*
     override fun onStart() {
         super.onStart()
+        player.prepare()
         lifecycleScope.launch {
-            withContext(Dispatchers.IO) {
-                // 在 IO 线程中执行你的网络操作
-                videoUrls = parseM3U(m3uUrl)
-                if (videoUrls.isNotEmpty()) {
-//                  // 播放列表中的第一个 URL
-                    val uri = Uri.parse(videoUrls[0])
-                    val type = Util.inferContentType(uri)
-                    val ms = when (type) {
-                        C.TYPE_DASH -> DashMediaSource.Factory(dataSourceFactory)
-                        C.TYPE_HLS -> HlsMediaSource.Factory(dataSourceFactory)
-                        C.TYPE_SS -> SsMediaSource.Factory(dataSourceFactory)
-                        C.TYPE_OTHER -> ProgressiveMediaSource.Factory(dataSourceFactory)
-                        else -> {
-//                toast(str(R.string.fmt_unsupported_content_type, type.toString()))
-                            return@withContext
-                        }
-                    }.createMediaSource(MediaItem.fromUri(uri))
-
-                    withContext(Dispatchers.Main) { // 切换到主线程来操作 ExoPlayer
-                        player.setMediaSource(ms)
-                        player.prepare() // 通常 prepare 也需要在主线程调用
-                        player.playWhenReady = true // 如果需要自动播放
-                    }
-                } else {
-                    // 处理 M3U 文件解析失败或没有视频 URL 的情况
-                    Toast.makeText(this@MainActivity, "无法加载视频列表", Toast.LENGTH_SHORT).show()
-                }
-            }
-            // 在主线程中处理网络操作的结果，例如更新 UI
-//            updateUI(result)
         }
-    }
+    }*/
 
 
     // 当 Activity 的窗口获得或失去焦点时调用
@@ -197,17 +211,45 @@ class MainActivity : AppCompatActivity(), AnalyticsListener {
 
 
 
-
-    private fun releasePlayer() {
-        player.release()
-        player.release()
+    // 在进入前台时恢复播放
+    override fun onResume() {
+        super.onResume()
+        // 标志告诉播放器在切换到Player.STATE_READY时自动播放媒体
+        player.playWhenReady = true
+        playerView.onResume()
     }
 
+/*    override fun onPause() {
+        super.onPause()
+        player.playWhenReady = false
+        playerView.onPause()
+    }
+
+    override fun onRestart() {
+        super.onRestart()
+        player.playWhenReady = true
+        player.playbackState
+    }*/
+
+    //  当你的应用进入后台时，你需要保存当前的播放状态，
+    //  包括 playWhenReady 的值和当前的播放位置
+    //  你可以使用 SharedPreferences、ViewModel 或其他持久化机制来保存这些数据。
     override fun onStop() {
         super.onStop()
-        releasePlayer()
+        player.playWhenReady = true
+        player.playbackState
+        player.currentPosition
+        player.currentWindowIndex
     }
 
+    override fun onDestroy() {
+        super.onDestroy()
+        player.release()
+        // 在服务销毁或播放停止时释放锁
+        if (wifiLock.isHeld) {
+            wifiLock.release()
+        }
+    }
 
 
     fun parseM3U(m3uUrl: String): List<String> {
@@ -244,8 +286,6 @@ class MainActivity : AppCompatActivity(), AnalyticsListener {
     }
 
 
-
-
     // 自定义手势监听器
     private inner class MyGestureListener : GestureDetector.SimpleOnGestureListener() {
 
@@ -258,8 +298,6 @@ class MainActivity : AppCompatActivity(), AnalyticsListener {
             velocityX: Float,
             velocityY: Float
         ): Boolean {
-            if (e1 == null) return false
-
             val diffX = e2.x - e1.x
             val diffY = e2.y - e1.y
 
@@ -268,32 +306,23 @@ class MainActivity : AppCompatActivity(), AnalyticsListener {
                 Math.abs(velocityX) > SWIPE_VELOCITY_THRESHOLD
             ) {
                 if (diffX > 0) {
+                    // 向右滑动
                     currentVideoIndex--
-//                    onSwipeRight()
                 } else {
+                    // 向左滑动
                     currentVideoIndex++
-//                    onSwipeLeft()
                 }
-                onSwipe()
+                switchPlay()
                 return true // 表示我们处理了 fling 手势
             }
             return super.onFling(e1, e2, velocityX, velocityY)
         }
     }
 
-    private fun onSwipeLeft() {
-//        Toast.makeText(this, "向左滑动", Toast.LENGTH_SHORT).show()
-        // 在这里执行向左滑动时的操作，例如切换到下一个屏幕或执行特定功能
-        onSwipe()
-    }
-
-    private fun onSwipeRight() {
-//        Toast.makeText(this, "向右滑动", Toast.LENGTH_SHORT).show()
-        // 在这里执行向右滑动时的操作，例如切换到上一个屏幕或执行特定功能
-        onSwipe()
-    }
-
-    private fun onSwipe() {
+    // 在这里执行滑动时的操作，例如切换到上一个屏幕或执行特定功能
+    private fun switchPlay() {
+        // 循环回列表的开头或结尾
+        currentVideoIndex = (currentVideoIndex % videoUrls.size + videoUrls.size) % videoUrls.size
         Toast.makeText(this, iptvNames[currentVideoIndex], Toast.LENGTH_SHORT).show()
         // 播放列表中的第一个 URL
         val uri = Uri.parse(videoUrls[currentVideoIndex])
