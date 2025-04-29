@@ -1,0 +1,18 @@
+
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out private_key.pem
+
+openssl rsa -in private_key.pem -pubout -out public_key.pem
+
+# k.bin 
+openssl rsa -in private_key.pem -outform DER -out private_key.der
+
+# j.bin 
+openssl rsautl -encrypt -pubin -inkey public_key.pem -in url.txt -out url_enc.bin
+
+
+
+openssl rsautl -decrypt -inkey private_key.pem -in url_enc.bin -out url_dec.txt
+
+
+openssl rsautl -decrypt -inkey private_key.pem -in url_enc.bin
+echo "https://raw.githubusercontent.com/soofee/iptv/master/jp.m3u" | openssl rsautl -encrypt -pubin -inkey public_key.pem | base64

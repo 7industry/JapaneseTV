@@ -35,9 +35,13 @@ android {
 
     buildTypes {
         release {
-            minifyEnabled false
+            debuggable false //是否debug
+            jniDebuggable false // 是否打开jniDebuggable开关
+            minifyEnabled true  //代码压缩，混淆
+            shrinkResources true //资源压缩
+            zipAlignEnabled true //压缩优化
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            signingConfig signingConfigs.release
+            signingConfig signingConfigs.release //签名
         }
         debug {
             signingConfig signingConfigs.debug
@@ -65,6 +69,8 @@ dependencies {
     implementation "com.google.android.exoplayer:exoplayer:$exo_player_version"
     implementation "com.google.android.exoplayer:extension-okhttp:$exo_player_version"
     implementation "com.google.android.exoplayer:extension-rtmp:$exo_player_version"
+
+    implementation 'org.bouncycastle:bcprov-jdk15to18:1.65'   // 加解密处理
 
     testImplementation 'junit:junit:4.13.1'
     androidTestImplementation 'androidx.test.ext:junit:1.1.3'
