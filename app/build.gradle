@@ -70,6 +70,8 @@ dependencies {
     implementation "com.google.android.exoplayer:extension-okhttp:$exo_player_version"
     implementation "com.google.android.exoplayer:extension-rtmp:$exo_player_version"
 
+    implementation 'org.bouncycastle:bcprov-jdk15to18:1.65'   // 加解密处理
+
     testImplementation 'junit:junit:4.13.1'
     androidTestImplementation 'androidx.test.ext:junit:1.1.3'
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.4.0'

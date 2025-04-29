@@ -32,6 +32,7 @@ import com.google.android.exoplayer2.ui.PlayerView
 import com.google.android.exoplayer2.upstream.DataSource
 import com.google.android.exoplayer2.util.Util
 import com.kindustry.iptv.service.BackgroundPlayService
+import com.kindustry.iptv.utils.ContextHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -54,7 +55,6 @@ class MainActivity : AppCompatActivity(), AnalyticsListener {
     private var videoUrls: List<String> = emptyList()
     private var currentVideoIndex = 0
 
-    private val m3uUrl = "https://raw.githubusercontent.com/soofee/iptv/master/jp.m3u"
 
     // 初始化播放器
     private val player by lazy {
@@ -106,6 +106,8 @@ class MainActivity : AppCompatActivity(), AnalyticsListener {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+
+        val m3uUrl = ContextHelper.decryptBinaryToString(this)
 
         // 确保你的根视图在 XML 中有 id="rootLayout"
         rootLayout = findViewById(R.id.rootLayout)
@@ -252,7 +254,7 @@ class MainActivity : AppCompatActivity(), AnalyticsListener {
     }
 
 
-    fun parseM3U(m3uUrl: String): List<String> {
+    fun parseM3U(m3uUrl: String?): List<String> {
         val playlist = mutableListOf<String>()
         val tvnames = mutableListOf<String>()
         try {
@@ -343,4 +345,7 @@ class MainActivity : AppCompatActivity(), AnalyticsListener {
         player.playWhenReady = true // 如果需要自动播放
 //        playerView.onResume() // Ensure PlayerView is resumed
     }
+
+
+
 }
