@@ -17,9 +17,9 @@ android {
     signingConfigs {
         release {
             storeFile file("../release.jks")
-            storePassword "xxx"
-            keyAlias "xxx"
-            keyPassword "xxx"
+            storePassword "Wk020460"
+            keyAlias "publish"
+            keyPassword "Wk020460"
             v1SigningEnabled true
             v2SigningEnabled true
         }
@@ -59,8 +59,9 @@ dependencies {
     implementation 'androidx.appcompat:appcompat:1.1.0'
     implementation 'com.google.android.material:material:1.2.0'
     implementation 'androidx.constraintlayout:constraintlayout:1.1.3'
-    implementation 'androidx.navigation:navigation-fragment:2.1.0'
+    implementation 'androidx.navigation:navigation-fragment-ktx:2.1.0'
     implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.3.1'
+    implementation 'androidx.lifecycle:lifecycle-livedata-ktx:2.3.1'
 
     implementation 'javax.activation:javax.activation-api:1.2.0'
     implementation 'androidx.multidex:multidex:2.0.1' // 使用 AndroidX 版本的 MultiDex

@@ -49,18 +49,44 @@ class BackgroundPlayService : Service() {
         }
     }
 
-
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        //接受传递过来的intent的数据
 //        val videoUrl = intent?.getStringExtra("videoUrl")
 //        if (!videoUrl.isNullOrEmpty() && player?.currentMediaItem == null) {
 //            // ... (播放器初始化代码)
 //        } else if (player?.playWhenReady == false) {
 //            player?.playWhenReady = true
 //        }
+        // ... 处理启动命令 ...
+     /*   if (intent?.action == "ACTION_STOP_PLAYBACK") {
+            // 停止任何正在进行的后台播放操作
+            stopForeground(true) // 如果服务在前台运行，需要先停止前台模式
+            stopSelf() // 停止服务自身
+        }*/
         return START_STICKY // 系统尝试重新启动 Service
     }
 
+
+    /**
+     * onBind 是 Service 的虚方法，因此我们不得不实现它。
+     * 返回 null，表示客服端不能建立到此服务的连接。
+     */
+    override fun onBind(intent: Intent?): IBinder? {
+        return null
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        // 在这里处理应用被上滑关闭的事件
+        // 例如：停止后台播放、清理资源、保存状态等
+
+        // 如果你希望服务在被强制停止后不再尝试重启，可以调用 stopSelf()
+        stopSelf()
+    }
+
     override fun onDestroy() {
+        // 注意：onDestroy() 不保证在强制停止时一定被调用
+        // 可以在这里进行一些清理工作，但不要依赖它来处理关键的“应用关闭”逻辑
         // 停止前台服务并移除通知
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             stopForeground(STOP_FOREGROUND_REMOVE)
@@ -69,8 +95,5 @@ class BackgroundPlayService : Service() {
         super.onDestroy()
     }
 
-    override fun onBind(intent: Intent?): IBinder? {
-        return null
-    }
 
 }
